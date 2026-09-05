@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>L3 Replay Dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1724;
+      --panel: #131d2e;
+      --line: #2a3548;
+      --text: #d8e1f0;
+      --muted: #8ea0b9;
+      --bid: #20bf82;
+      --ask: #ff5b7f;
+      --accent: #f4bf4f;
+    }
+    body { margin: 0; padding: 12px; background: var(--bg); color: var(--text); font-family: "Consolas", "Menlo", monospace; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    input, select, button { padding: 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #0d1522; color: var(--text); }
+    input { min-width: 170px; }
+    input[readonly] { background: #101a2a; color: #d1daea; }
+    button { cursor: pointer; }
+    button:hover { border-color: #465a76; }
+    .actions { display: flex; gap: 8px; }
+    .timeline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .timeline input[type="range"] { min-width: 360px; }
+    .mode-actions { display: inline-flex; gap: 6px; margin-left: 8px; }
+    .hint { font-size: 12px; color: var(--muted); }
+    .status { font-size: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 8px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 8px; }
+    .main-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    @media (max-width: 1200px) { .main-grid { grid-template-columns: 1fr; } }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #233047; padding: 4px 6px; text-align: right; }
+    th { background: #122039; color: #bccce4; }
+    .table-scroll { max-height: 280px; overflow-y: auto; border: 1px solid #233047; border-radius: 6px; }
+    .table-scroll table { border: 0; }
+    .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
+    td.bid { color: var(--bid); }
+    td.ask { color: var(--ask); }
+    td.mid { color: #e9eef8; }
+    .depth-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .depth-row .pct { width: 80px; text-align: center; font-weight: bold; }
+    .depth-row .pct.bid { color: var(--bid); }
+    .depth-row .pct.ask { color: var(--ask); }
+    .depth-bar { flex: 1; height: 10px; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; display: flex; }
+    .depth-bid { background: var(--bid); height: 100%; width: 50%; }
+    .depth-ask { background: var(--ask); height: 100%; width: 50%; }
+    #log { height: 180px; overflow: auto; white-space: pre; background: #0c1320; color: #cfdced; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+    #queues { max-height: 160px; overflow: auto; font-size: 12px; }
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .metric-card { border: 1px solid #2a3a55; border-radius: 6px; padding: 8px; background: #0f1828; }
+    .metric-card .name { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .metric-card .value { font-size: 15px; font-weight: bold; color: #e8effa; }
+    #priceChart { width: 100%; height: 230px; border: 1px solid #27334a; border-radius: 6px; background: #0b1424; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .split-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .top-right-hud {
+      position: fixed;
+      top: 8px;
+      right: 10px;
+      z-index: 1000;
+      text-align: right;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(12, 19, 32, 0.85);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .top-right-hud .status { font-size: 13px; color: var(--text); margin-bottom: 2px; }
+    .book-current-wrap { display: flex; justify-content: center; margin-bottom: 8px; }
+    .book-current-wrap .field { min-width: 280px; align-items: center; }
+    .book-current-wrap input { min-width: 280px; text-align: center; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="top-right-hud">
+    <div class="status" id="status">status: idle</div>
+    <div>UI version: 2026-05-15-3</div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <div class="field">
+        <label for="mboPath">MBO DBN Path</label>
+        <input id="mboPath" value="data/session.mbo.dbn.zst" />
+      </div>
+      <div class="field">
+        <label for="definitionPath">Definition DBN Path</label>
+        <input id="definitionPath" value="data/session.definition.dbn.zst" />
+      </div>
+      <div class="field">
+        <label for="instrumentId">Instrument ID (optional)</label>
+        <input id="instrumentId" value="42000661" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field"><label for="emitEvery">Emit Every</label><input id="emitEvery" type="number" value="100" /></div>
+      <div class="field"><label for="validateEvery">Validate Every</label><input id="validateEvery" type="number" value="50000" /></div>
+      <div class="field"><label for="delayMs">Delay ms</label><input id="delayMs" type="number" value="20" /></div>
+      <div class="field"><label for="topN">Top N Levels</label><input id="topN" type="number" value="10" /></div>
+      <div class="field"><label for="aroundTicks">Around BBA</label><input id="aroundTicks" type="number" value="6" /></div>
+      <div class="field"><label for="queueLevels">Queue Levels</label><input id="queueLevels" placeholder="B:7250,A:7251" /></div>
+      <div class="field">
+        <label>Replay Controls</label>
+        <div class="actions">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="resumeBtn">Resume</button>
+          <button id="queueBtn">Apply Queues</button>
+          <button id="useBbaBtn">Use BBA</button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field" style="width:100%;">
+        <label for="timeline">Timeline</label>
+        <div class="timeline">
+          <input id="timeline" type="range" min="0" max="0" value="0" step="1" />
+          <span id="timelineInfo">idx=0/0 seq=- ts=-</span>
+          <button id="liveBtn">Live</button>
+          <span class="hint">Modes:</span>
+          <div class="mode-actions">
+            <button id="modeObserveBtn">Observe</button>
+            <button id="modeQueueBtn">Queue</button>
+            <button id="modeFastBtn">Fast</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-3">
+      <div class="field"><label for="tsKst">Event Time (KST)</label><input id="tsKst" readonly value="-" /></div>
+      <div class="field"><label for="tsCt">Event Time (CT)</label><input id="tsCt" readonly value="-" /></div>
+      <div class="field"><label for="tsUtc">Event Time (UTC)</label><input id="tsUtc" readonly value="-" /></div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Order Book (Top 10)</h3>
+        <div class="book-current-wrap">
+          <div class="field">
+            <label for="currentPx">Current Px (Last / Mid)</label>
+            <input id="currentPx" readonly value="- / -" />
+          </div>
+        </div>
+        <div class="depth-row">
+          <div class="pct bid" id="depthBidPct">50.00%</div>
+          <div class="depth-bar">
+            <div class="depth-bid" id="depthBidBar"></div>
+            <div class="depth-ask" id="depthAskBar"></div>
+          </div>
+          <div class="pct ask" id="depthAskPct">50.00%</div>
+        </div>
+        <table id="book10Table">
+          <thead><tr><th>Bid Size</th><th>Bid Px</th><th>Ask Px</th><th>Ask Size</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Event Log</h3>
+        <div id="log"></div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Queue Watch</h3>
+        <div id="queues"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Realtime Price Chart (ticks)</h3>
+        <canvas id="priceChart"></canvas>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Position & PnL</h3>
+        <div class="split">
+          <div class="field"><label for="posVal">Position</label><input id="posVal" readonly value="0" /></div>
+          <div class="field"><label for="cashVal">Cash (tick*qty)</label><input id="cashVal" readonly value="0" /></div>
+          <div class="field"><label for="midVal">Mid Px</label><input id="midVal" readonly value="-" /></div>
+          <div class="field"><label for="mtmVal">MTM PnL (tick*qty)</label><input id="mtmVal" readonly value="-" /></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Order Entry</h3>
+        <div class="split-3">
+          <div class="field">
+            <label for="orderSide">Side</label>
+            <select id="orderSide"><option value="B">B (Buy)</option><option value="A">A (Sell)</option></select>
+          </div>
+          <div class="field"><label for="orderPx">Price ticks</label><input id="orderPx" type="number" value="" /></div>
+          <div class="field"><label for="orderSz">Size</label><input id="orderSz" type="number" value="1" /></div>
+        </div>
+        <div class="split" style="margin-top:8px;">
+          <div class="field"><label for="orderId">Client Order ID (optional)</label><input id="orderId" type="number" value="" /></div>
+          <div class="field"><label for="cancelId">Cancel Order ID</label><input id="cancelId" type="number" value="" /></div>
+        </div>
+        <div class="actions" style="margin-top:8px;">
+          <button id="submitOrderBtn">Submit</button>
+          <button id="replaceOrderBtn">Replace</button>
+          <button id="cancelOrderBtn">Cancel</button>
+          <button id="buyAskBtn">Buy@Ask</button>
+          <button id="sellBidBtn">Sell@Bid</button>
+        </div>
+        <div class="hint" style="margin-top:6px;">Passive limit is queue-based. Immediate fill needs crossing price (Buy >= Ask, Sell <= Bid).</div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">My Recent Fills</h3>
+        <table id="fillsTable">
+          <thead><tr><th>ts_ns</th><th>ID</th><th>Side</th><th>Px</th><th>Sz</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">My Live Orders</h3>
+        <table id="liveOrdersTable">
+          <thead><tr><th>ID</th><th>Side</th><th>Px</th><th>Remain</th><th>Q Ahead</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Realtime Metrics</h3>
+        <div class="metric-grid">
+          <div class="metric-card"><div class="name">Implementation Shortfall (ticks)</div><div class="value" id="metricIS">-</div></div>
+          <div class="metric-card"><div class="name">VWAP Slippage (ticks)</div><div class="value" id="metricVWAP">-</div></div>
+          <div class="metric-card"><div class="name">TWAP Slippage (ticks)</div><div class="value" id="metricTWAP">-</div></div>
+          <div class="metric-card"><div class="name">Market Impact (ticks)</div><div class="value" id="metricImpact">-</div></div>
+          <div class="metric-card"><div class="name">Delay Cost (ticks)</div><div class="value" id="metricDelay">-</div></div>
+          <div class="metric-card"><div class="name">Price Reversion 1s (ticks)</div><div class="value" id="metricReversion">-</div></div>
+          <div class="metric-card"><div class="name">Effective Spread (ticks)</div><div class="value" id="metricEffSpread">-</div></div>
+          <div class="metric-card"><div class="name">Opportunity Cost (tick*qty)</div><div class="value" id="metricOpportunity">-</div></div>
+          <div class="metric-card"><div class="name">Participation Rate</div><div class="value" id="metricParticipation">-</div></div>
+          <div class="metric-card"><div class="name">VPIN</div><div class="value" id="metricVPIN">-</div></div>
+          <div class="metric-card"><div class="name">Submitted / Filled Qty</div><div class="value" id="metricQty">-</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 6px;">Recent Trades</h3>
+        <div class="table-scroll">
+          <table id="tradesTable">
+            <thead><tr><th>Time (CT)</th><th>Side</th><th>Price</th><th>Size</th><th>Seq</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const logEl = $("log");
+    const timelineEl = $("timeline");
+    const timelineInfoEl = $("timelineInfo");
+    const tsKstEl = $("tsKst");
+    const tsCtEl = $("tsCt");
+    const tsUtcEl = $("tsUtc");
+    const currentPxEl = $("currentPx");
+    const book10BodyEl = document.querySelector("#book10Table tbody");
+    const queuesEl = $("queues");
+    const tradesBodyEl = document.querySelector("#tradesTable tbody");
+    const fillsBodyEl = document.querySelector("#fillsTable tbody");
+    const liveOrdersBodyEl = document.querySelector("#liveOrdersTable tbody");
+    const depthBidPctEl = $("depthBidPct");
+    const depthAskPctEl = $("depthAskPct");
+    const depthBidBarEl = $("depthBidBar");
+    const depthAskBarEl = $("depthAskBar");
+    const chartEl = $("priceChart");
+    const chartCtx = chartEl.getContext("2d");
+
+    let ws = null;
+    let history = [];
+    let currentIndex = -1;
+    let followLive = true;
+    let lastBook = null;
+    let lastTradePx = null;
+    let recentTrades = [];
+    let rollingTradeWindow = [];
+    let rollingBuyQty = 0;
+    let rollingSellQty = 0;
+    let eventRateWindow = [];
+    let pendingMarkout1s = [];
+    let markout1sNum = 0;
+    let markout1sDen = 0;
+    let midSeries = [];
+    let tradeSeries = [];
+
+    const MAX_RECENT_TRADES = 300;
+    const MAX_ROLLING_TRADES = 200;
+    const MAX_SERIES = 500;
+    const ONE_SEC_NS = 1000000000n;
+
+    const kstFormatter = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3, hour12: false
+    });
+    const ctFormatter = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3, hour12: false
+    });
+    const ctTimeFormatter = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", second: "2-digit",
+      fractionalSecondDigits: 3, hour12: false
+    });
+
+    function log(line) {
+      const now = new Date().toISOString();
+      logEl.textContent += `[${now}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function setStatus(text) { statusEl.textContent = `status: ${text}`; }
+    function send(msg) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify(msg));
+    }
+    function setMetric(id, value) {
+      const el = $(id);
+      if (el) el.textContent = value;
+    }
+    function formatNumber(v, digits = 3) {
+      if (v == null || Number.isNaN(v)) return "-";
+      return Number(v).toFixed(digits);
+    }
+    function formatPct(v) {
+      if (v == null || Number.isNaN(v)) return "-";
+      return `${(v * 100).toFixed(2)}%`;
+    }
+    function nsToBigInt(tsNsStr) {
+      if (!tsNsStr) return null;
+      try { return BigInt(tsNsStr); } catch { return null; }
+    }
+    function nsToDate(tsNsStr) {
+      const ns = nsToBigInt(tsNsStr);
+      if (ns === null) return null;
+      const ms = Number(ns / 1000000n);
+      return new Date(ms);
+    }
+    function x2ToString(v) {
+      if (v == null) return "-";
+      return (Number(v) / 2).toFixed(1);
+    }
+    function drawChart() {
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(400, chartEl.clientWidth);
+      const height = 230;
+      chartEl.width = Math.floor(width * dpr);
+      chartEl.height = Math.floor(height * dpr);
+      chartEl.style.height = `${height}px`;
+      chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      chartCtx.clearRect(0, 0, width, height);
+      chartCtx.fillStyle = "#0b1424";
+      chartCtx.fillRect(0, 0, width, height);
+
+      const values = [];
+      for (const p of midSeries) if (Number.isFinite(p)) values.push(p);
+      for (const p of tradeSeries) if (Number.isFinite(p)) values.push(p);
+      if (values.length === 0) return;
+      let minY = Math.min(...values);
+      let maxY = Math.max(...values);
+      if (maxY <= minY) { maxY += 1; minY -= 1; }
+      const pad = (maxY - minY) * 0.1;
+      minY -= pad;
+      maxY += pad;
+
+      const left = 56;
+      const right = 10;
+      const top = 10;
+      const bottom = 18;
+      const n = Math.max(midSeries.length, tradeSeries.length);
+      const xAt = (i) => (i / Math.max(1, n - 1)) * (width - left - right) + left;
+      const yAt = (v) => height - bottom - ((v - minY) / (maxY - minY)) * (height - top - bottom);
+
+      chartCtx.strokeStyle = "#2b3e5b";
+      chartCtx.lineWidth = 1;
+      chartCtx.fillStyle = "#8ea0b9";
+      chartCtx.font = "11px Consolas, Menlo, monospace";
+      for (let i = 0; i < 5; i += 1) {
+        const y = top + i * ((height - top - bottom) / 4);
+        chartCtx.beginPath();
+        chartCtx.moveTo(left, y);
+        chartCtx.lineTo(width - right, y);
+        chartCtx.stroke();
+        const value = maxY - (i / 4) * (maxY - minY);
+        chartCtx.fillText(value.toFixed(1), 4, y + 3);
+      }
+      chartCtx.beginPath();
+      chartCtx.moveTo(left, top);
+      chartCtx.lineTo(left, height - bottom);
+      chartCtx.stroke();
+
+      chartCtx.strokeStyle = "#f4bf4f";
+      chartCtx.lineWidth = 1.8;
+      chartCtx.beginPath();
+      let hasMid = false;
+      for (let i = 0; i < midSeries.length; i += 1) {
+        if (!Number.isFinite(midSeries[i])) continue;
+        const x = xAt(i);
+        const y = yAt(midSeries[i]);
+        if (!hasMid) {
+          chartCtx.moveTo(x, y);
+          hasMid = true;
+        } else {
+          chartCtx.lineTo(x, y);
+        }
+      }
+      if (hasMid) chartCtx.stroke();
+
+      chartCtx.fillStyle = "#ff5b7f";
+      for (let i = 0; i < tradeSeries.length; i += 1) {
+        const v = tradeSeries[i];
+        if (v == null) continue;
+        chartCtx.beginPath();
+        chartCtx.arc(xAt(i), yAt(v), 2, 0, Math.PI * 2);
+        chartCtx.fill();
+      }
+    }
+
+    function setBook10Table(bidLevels, askLevels) {
+      const bids = Array.isArray(bidLevels) ? bidLevels.slice(0, 10) : [];
+      const asks = Array.isArray(askLevels) ? askLevels.slice(0, 10) : [];
+      book10BodyEl.innerHTML = "";
+      for (let i = 0; i < 10; i += 1) {
+        const bid = bids[i];
+        const ask = asks[i];
+        const tr = document.createElement("tr");
+        const bidSz = document.createElement("td");
+        const bidPx = document.createElement("td");
+        const askPx = document.createElement("td");
+        const askSz = document.createElement("td");
+        bidSz.className = "bid";
+        bidPx.className = "bid";
+        askPx.className = "ask";
+        askSz.className = "ask";
+        bidSz.textContent = bid ? String(bid[1]) : "";
+        bidPx.textContent = bid ? String(bid[0]) : "";
+        askPx.textContent = ask ? String(ask[0]) : "";
+        askSz.textContent = ask ? String(ask[1]) : "";
+        tr.appendChild(bidSz);
+        tr.appendChild(bidPx);
+        tr.appendChild(askPx);
+        tr.appendChild(askSz);
+        book10BodyEl.appendChild(tr);
+      }
+    }
+    function setQueues(queues) {
+      queuesEl.innerHTML = "";
+      if (!queues) return;
+      for (const key of Object.keys(queues)) {
+        const div = document.createElement("div");
+        div.style.marginBottom = "6px";
+        const title = document.createElement("div");
+        title.textContent = key;
+        title.style.color = "#9db4d7";
+        title.style.fontWeight = "bold";
+        const body = document.createElement("div");
+        body.textContent = JSON.stringify(queues[key]);
+        div.appendChild(title);
+        div.appendChild(body);
+        queuesEl.appendChild(div);
+      }
+    }
+    function renderTradesTable() {
+      tradesBodyEl.innerHTML = "";
+      for (const t of recentTrades) {
+        const tr = document.createElement("tr");
+        const c1 = document.createElement("td");
+        const c2 = document.createElement("td");
+        const c3 = document.createElement("td");
+        const c4 = document.createElement("td");
+        const c5 = document.createElement("td");
+        c1.textContent = t.timeCt;
+        c2.textContent = t.sideText;
+        c3.textContent = String(t.price);
+        c4.textContent = String(t.size);
+        c5.textContent = String(t.seq);
+        c2.className = t.sideText === "BUY" ? "bid" : (t.sideText === "SELL" ? "ask" : "mid");
+        c3.className = c2.className;
+        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3); tr.appendChild(c4); tr.appendChild(c5);
+        tradesBodyEl.appendChild(tr);
+      }
+    }
+    function renderFillsTable(fills) {
+      fillsBodyEl.innerHTML = "";
+      if (!Array.isArray(fills)) return;
+      for (const f of fills) {
+        const tr = document.createElement("tr");
+        const c1 = document.createElement("td");
+        const c2 = document.createElement("td");
+        const c3 = document.createElement("td");
+        const c4 = document.createElement("td");
+        const c5 = document.createElement("td");
+        c1.textContent = String(f.ts_ns ?? "-");
+        c2.textContent = String(f.client_order_id ?? "-");
+        c3.textContent = String(f.side ?? "-");
+        c4.textContent = String(f.price_ticks ?? "-");
+        c5.textContent = String(f.size ?? "-");
+        c3.className = f.side === "B" ? "bid" : (f.side === "A" ? "ask" : "mid");
+        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3); tr.appendChild(c4); tr.appendChild(c5);
+        fillsBodyEl.appendChild(tr);
+      }
+    }
+    function renderLiveOrdersTable(orders) {
+      liveOrdersBodyEl.innerHTML = "";
+      if (!Array.isArray(orders)) return;
+      for (const o of orders) {
+        const tr = document.createElement("tr");
+        const c1 = document.createElement("td");
+        const c2 = document.createElement("td");
+        const c3 = document.createElement("td");
+        const c4 = document.createElement("td");
+        const c5 = document.createElement("td");
+        c1.textContent = String(o.client_order_id ?? "-");
+        c2.textContent = String(o.side ?? "-");
+        c3.textContent = String(o.price_ticks ?? "-");
+        c4.textContent = String(o.remaining_size ?? "-");
+        c5.textContent = String(o.queue_ahead_size ?? "-");
+        c2.className = o.side === "B" ? "bid" : (o.side === "A" ? "ask" : "mid");
+        c3.className = c2.className;
+        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3); tr.appendChild(c4); tr.appendChild(c5);
+        liveOrdersBodyEl.appendChild(tr);
+      }
+    }
+
+    function onTrade(msg) {
+      const event = msg.event || {};
+      if (event.action !== "TRADE" || event.price_ticks == null || event.size == null) return;
+      const tsNsStr = msg.ts_ns_str || (msg.ts_ns != null ? String(msg.ts_ns) : "");
+      const tsBig = nsToBigInt(tsNsStr);
+      const date = nsToDate(tsNsStr);
+      const sideCode = String(event.side || "");
+      const sideText = sideCode === "B" ? "BUY" : sideCode === "A" ? "SELL" : "NA";
+      const size = Number(event.size);
+      const price = Number(event.price_ticks);
+      recentTrades.unshift({
+        timeCt: date ? ctTimeFormatter.format(date).replace(",", "") : "-",
+        sideText,
+        price,
+        size,
+        seq: msg.seq,
+      });
+      if (recentTrades.length > MAX_RECENT_TRADES) recentTrades.length = MAX_RECENT_TRADES;
+      renderTradesTable();
+
+      if (sideText === "BUY" || sideText === "SELL") {
+        rollingTradeWindow.push({ sideText, size });
+        if (sideText === "BUY") rollingBuyQty += size;
+        else rollingSellQty += size;
+        while (rollingTradeWindow.length > MAX_ROLLING_TRADES) {
+          const old = rollingTradeWindow.shift();
+          if (old.sideText === "BUY") rollingBuyQty -= old.size;
+          else rollingSellQty -= old.size;
+        }
+      }
+
+      const b = msg.book || {};
+      const bb = b.best_bid_px;
+      const ba = b.best_ask_px;
+      const mid = (bb != null && ba != null) ? (bb + ba) / 2 : null;
+      if (tsBig !== null && mid != null && (sideText === "BUY" || sideText === "SELL")) {
+        pendingMarkout1s.push({
+          dueNs: tsBig + ONE_SEC_NS,
+          sideSign: sideText === "BUY" ? 1 : -1,
+          price,
+          size,
+        });
+      }
+    }
+    function processPendingMarkout(msg) {
+      const tsNsStr = msg.ts_ns_str || (msg.ts_ns != null ? String(msg.ts_ns) : "");
+      const tsBig = nsToBigInt(tsNsStr);
+      if (tsBig === null) return;
+      const b = msg.book || {};
+      const bb = b.best_bid_px;
+      const ba = b.best_ask_px;
+      const mid = (bb != null && ba != null) ? (bb + ba) / 2 : null;
+      if (mid == null) return;
+      while (pendingMarkout1s.length > 0 && pendingMarkout1s[0].dueNs <= tsBig) {
+        const m = pendingMarkout1s.shift();
+        markout1sNum += m.sideSign * m.size * (mid - m.price);
+        markout1sDen += m.size;
+      }
+    }
+    function updateExecution(execution) {
+      if (!execution) return;
+      $("posVal").value = String(execution.position ?? 0);
+      $("cashVal").value = String(execution.cash_ticks ?? 0);
+      $("midVal").value = x2ToString(execution.mid_px_x2);
+      $("mtmVal").value = x2ToString(execution.mtm_pnl_x2);
+      renderFillsTable(execution.recent_fills || []);
+      renderLiveOrdersTable(execution.live_orders || []);
+      const tca = execution.tca || {};
+      setMetric("metricIS", formatNumber(tca.implementation_shortfall_ticks, 4));
+      setMetric("metricVWAP", formatNumber(tca.vwap_slippage_ticks, 4));
+      setMetric("metricTWAP", formatNumber(tca.twap_slippage_ticks, 4));
+      setMetric("metricImpact", formatNumber(tca.market_impact_ticks, 4));
+      setMetric("metricDelay", formatNumber(tca.delay_cost_ticks, 4));
+      setMetric("metricReversion", formatNumber(tca.price_reversion_1s_ticks, 4));
+      setMetric("metricEffSpread", formatNumber(tca.effective_spread_ticks, 4));
+      setMetric("metricOpportunity", formatNumber(tca.opportunity_cost_tick_qty, 2));
+      setMetric("metricParticipation", formatPct(tca.participation_rate));
+      setMetric("metricVPIN", formatNumber(tca.vpin, 4));
+      const submittedQty = Number.isFinite(Number(tca.submitted_qty)) ? Number(tca.submitted_qty) : 0;
+      const filledQty = Number.isFinite(Number(tca.filled_qty)) ? Number(tca.filled_qty) : 0;
+      setMetric("metricQty", `${submittedQty} / ${filledQty}`);
+    }
+
+    function renderUpdate(msg) {
+      const b = msg.book || {};
+      lastBook = b;
+      const bidLevels = Array.isArray(b.bid_levels) ? b.bid_levels : [];
+      const askLevels = Array.isArray(b.ask_levels) ? b.ask_levels : [];
+      const top10BidDepth = bidLevels.slice(0, 10).reduce((a, x) => a + Number(x[1] || 0), 0);
+      const top10AskDepth = askLevels.slice(0, 10).reduce((a, x) => a + Number(x[1] || 0), 0);
+      setBook10Table(bidLevels, askLevels);
+      setQueues(msg.queues || {});
+
+      const tsNsStr = msg.ts_ns_str || (msg.ts_ns != null ? String(msg.ts_ns) : "");
+      const date = nsToDate(tsNsStr);
+      if (date) {
+        tsKstEl.value = `${kstFormatter.format(date).replace(",", "")} KST`;
+        tsCtEl.value = `${ctFormatter.format(date).replace(",", "")} CT`;
+        tsUtcEl.value = date.toISOString().replace("T", " ").replace("Z", " UTC");
+      } else {
+        tsKstEl.value = "-"; tsCtEl.value = "-"; tsUtcEl.value = "-";
+      }
+
+      const bb = b.best_bid_px;
+      const ba = b.best_ask_px;
+      let mid = null;
+      if (bb != null && ba != null) mid = (bb + ba) / 2;
+      if (msg.event && msg.event.action === "TRADE" && msg.event.price_ticks != null) {
+        lastTradePx = Number(msg.event.price_ticks);
+      }
+      currentPxEl.value = `${lastTradePx == null ? "-" : lastTradePx} / ${mid == null ? "-" : mid.toFixed(3)}`;
+
+      const total = top10BidDepth + top10AskDepth;
+      const bidPct = total > 0 ? top10BidDepth / total : 0.5;
+      const askPct = 1 - bidPct;
+      depthBidPctEl.textContent = `${(bidPct * 100).toFixed(2)}%`;
+      depthAskPctEl.textContent = `${(askPct * 100).toFixed(2)}%`;
+      depthBidBarEl.style.width = `${Math.max(0, Math.min(100, bidPct * 100))}%`;
+      depthAskBarEl.style.width = `${Math.max(0, Math.min(100, askPct * 100))}%`;
+
+      onTrade(msg);
+      processPendingMarkout(msg);
+      const tsBig = nsToBigInt(tsNsStr);
+      if (tsBig !== null) {
+        eventRateWindow.push(tsBig);
+        while (eventRateWindow.length > 0 && eventRateWindow[0] < tsBig - ONE_SEC_NS) eventRateWindow.shift();
+      }
+      midSeries.push(Number.isFinite(mid) ? mid : null);
+      let tradePx = null;
+      if (msg.event && msg.event.action === "TRADE" && msg.event.price_ticks != null) {
+        const px = Number(msg.event.price_ticks);
+        if (Number.isFinite(px) && px > 0) {
+          if (Number.isFinite(mid) && Math.abs(px - mid) > 1000) {
+            log(`ignore trade point outlier: px=${px} mid=${mid.toFixed(3)} seq=${msg.seq}`);
+            tradePx = null;
+          } else {
+            tradePx = px;
+          }
+        }
+      }
+      tradeSeries.push(tradePx);
+      while (midSeries.length > MAX_SERIES) midSeries.shift();
+      while (tradeSeries.length > MAX_SERIES) tradeSeries.shift();
+      drawChart();
+
+      updateExecution(msg.execution || null);
+      timelineInfoEl.textContent = `idx=${currentIndex}/${Math.max(0, history.length - 1)} seq=${msg.seq} ts=${msg.ts_ns}`;
+    }
+
+    function moveToIndex(idx) {
+      if (idx < 0 || idx >= history.length) return;
+      currentIndex = idx;
+      timelineEl.value = String(idx);
+      renderUpdate(history[idx]);
+    }
+    function resetUiState() {
+      history = [];
+      currentIndex = -1;
+      followLive = true;
+      lastBook = null;
+      lastTradePx = null;
+      recentTrades = [];
+      rollingTradeWindow = [];
+      rollingBuyQty = 0;
+      rollingSellQty = 0;
+      eventRateWindow = [];
+      pendingMarkout1s = [];
+      markout1sNum = 0;
+      markout1sDen = 0;
+      midSeries = [];
+      tradeSeries = [];
+      book10BodyEl.innerHTML = "";
+      tradesBodyEl.innerHTML = "";
+      fillsBodyEl.innerHTML = "";
+      liveOrdersBodyEl.innerHTML = "";
+      queuesEl.innerHTML = "";
+      logEl.textContent = "";
+      timelineEl.min = "0";
+      timelineEl.max = "0";
+      timelineEl.value = "0";
+      timelineInfoEl.textContent = "idx=0/0 seq=- ts=-";
+      tsKstEl.value = "-";
+      tsCtEl.value = "-";
+      tsUtcEl.value = "-";
+      currentPxEl.value = "- / -";
+      $("posVal").value = "0";
+      $("cashVal").value = "0";
+      $("midVal").value = "-";
+      $("mtmVal").value = "-";
+      depthBidPctEl.textContent = "50.00%";
+      depthAskPctEl.textContent = "50.00%";
+      depthBidBarEl.style.width = "50%";
+      depthAskBarEl.style.width = "50%";
+      setMetric("metricIS", "-");
+      setMetric("metricVWAP", "-");
+      setMetric("metricTWAP", "-");
+      setMetric("metricImpact", "-");
+      setMetric("metricDelay", "-");
+      setMetric("metricReversion", "-");
+      setMetric("metricEffSpread", "-");
+      setMetric("metricOpportunity", "-");
+      setMetric("metricParticipation", "-");
+      setMetric("metricVPIN", "-");
+      setMetric("metricQty", "-");
+      drawChart();
+    }
+    function applyMode(mode) {
+      $("topN").value = "10";
+      if (mode === "observe") {
+        $("emitEvery").value = "100";
+        $("delayMs").value = "20";
+        $("aroundTicks").value = "6";
+        $("validateEvery").value = "50000";
+      } else if (mode === "queue") {
+        $("emitEvery").value = "50";
+        $("delayMs").value = "25";
+        $("aroundTicks").value = "8";
+        $("validateEvery").value = "50000";
+      } else if (mode === "fast") {
+        $("emitEvery").value = "500";
+        $("delayMs").value = "2";
+        $("aroundTicks").value = "5";
+        $("validateEvery").value = "100000";
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        send({ cmd: "set_delay_ms", delay_ms: Number($("delayMs").value || 0) });
+        send({ cmd: "set_around_ticks", around_ticks: Number($("aroundTicks").value || 0) });
+        log("mode applied (delay/around live).");
+      } else {
+        log("mode preset applied. click Start.");
+      }
+    }
+
+    $("modeObserveBtn").onclick = () => applyMode("observe");
+    $("modeQueueBtn").onclick = () => applyMode("queue");
+    $("modeFastBtn").onclick = () => applyMode("fast");
+
+    $("startBtn").onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+      resetUiState();
+      ws = new WebSocket(`ws://${location.host}/ws/replay`);
+      ws.onopen = () => {
+        setStatus("connected");
+        send({
+          cmd: "start",
+          mbo_path: $("mboPath").value,
+          definition_path: $("definitionPath").value,
+          instrument_id: $("instrumentId").value,
+          emit_every: Number($("emitEvery").value || 1),
+          validate_every: Number($("validateEvery").value || 0),
+          delay_ms: Number($("delayMs").value || 0),
+          top_n: Number($("topN").value || 10),
+          around_ticks: Number($("aroundTicks").value || 0),
+          queue_levels: $("queueLevels").value,
+        });
+      };
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "started") {
+          log(`started instrument=${msg.instrument_id} symbol=${msg.symbol} tick=${msg.tick_size}`);
+          return;
+        }
+        if (msg.type === "status") {
+          setStatus(msg.stage || "working");
+          log(`status: ${msg.stage || "working"}`);
+          return;
+        }
+        if (msg.type === "exec_ack") {
+          if (msg.client_order_id != null && (msg.cmd === "submit_order" || msg.cmd === "replace_order")) {
+            $("orderId").value = String(msg.client_order_id);
+            $("cancelId").value = String(msg.client_order_id);
+          }
+          log(
+            `exec: ${msg.cmd} id=${msg.client_order_id} ` +
+            `bbo=${msg.best_bid_px}/${msg.best_ask_px} marketable=${msg.marketable_at_submit} ` +
+            `fills_added=${msg.fills_added} fill_sz=${msg.immediate_filled_size}`
+          );
+          if (msg.execution) updateExecution(msg.execution);
+          return;
+        }
+        if (msg.type === "update") {
+          history.push(msg);
+          timelineEl.max = String(Math.max(0, history.length - 1));
+          if (followLive || currentIndex === history.length - 2 || currentIndex < 0) moveToIndex(history.length - 1);
+          return;
+        }
+        if (msg.type === "eof") {
+          log(`eof events=${msg.events} final_ts=${msg.final_ts_ns}`);
+          setStatus("finished");
+          return;
+        }
+        if (msg.type === "error") {
+          log(`error: ${msg.message}`);
+          setStatus("error");
+          return;
+        }
+        log(`unknown message type: ${JSON.stringify(msg).slice(0, 240)}`);
+      };
+      ws.onclose = (ev) => {
+        setStatus(`disconnected(code=${ev.code})`);
+        log(`socket closed code=${ev.code}`);
+      };
+      ws.onerror = () => {
+        setStatus("error(websocket connect failed)");
+        log("socket error");
+      };
+    };
+
+    $("pauseBtn").onclick = () => send({ cmd: "pause" });
+    $("resumeBtn").onclick = () => send({ cmd: "resume" });
+    $("queueBtn").onclick = () => {
+      send({ cmd: "set_queue_levels", queue_levels: $("queueLevels").value });
+      send({ cmd: "set_delay_ms", delay_ms: Number($("delayMs").value || 0) });
+      send({ cmd: "set_around_ticks", around_ticks: Number($("aroundTicks").value || 0) });
+    };
+    $("useBbaBtn").onclick = () => {
+      if (!lastBook) return;
+      const b = lastBook.best_bid_px;
+      const a = lastBook.best_ask_px;
+      if (b == null || a == null) return;
+      $("queueLevels").value = `B:${b},A:${a}`;
+      $("orderPx").value = String(b);
+      $("orderSide").value = "B";
+    };
+    $("submitOrderBtn").onclick = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log("submit ignored: websocket not connected");
+        return;
+      }
+      const priceTicks = Number($("orderPx").value);
+      const size = Number($("orderSz").value);
+      if (!Number.isFinite(priceTicks) || priceTicks <= 0 || !Number.isFinite(size) || size <= 0) {
+        log("submit rejected: price_ticks>0 and size>0 required");
+        return;
+      }
+      const msg = {
+        cmd: "submit_order",
+        side: $("orderSide").value,
+        price_ticks: priceTicks,
+        size,
+      };
+      const idText = $("orderId").value.trim();
+      if (idText) msg.client_order_id = Number(idText);
+      log(`submit sent: side=${msg.side} px=${msg.price_ticks} sz=${msg.size}${msg.client_order_id != null ? ` id=${msg.client_order_id}` : ""}`);
+      send(msg);
+    };
+    $("replaceOrderBtn").onclick = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log("replace ignored: websocket not connected");
+        return;
+      }
+      const priceTicks = Number($("orderPx").value);
+      const size = Number($("orderSz").value);
+      if (!Number.isFinite(priceTicks) || priceTicks <= 0 || !Number.isFinite(size) || size <= 0) {
+        log("replace rejected: price_ticks>0 and size>0 required");
+        return;
+      }
+      const msg = {
+        cmd: "replace_order",
+        side: $("orderSide").value,
+        price_ticks: priceTicks,
+        size,
+      };
+      const idText = $("orderId").value.trim();
+      if (idText) msg.client_order_id = Number(idText);
+      log(`replace sent: side=${msg.side} px=${msg.price_ticks} sz=${msg.size}${msg.client_order_id != null ? ` id=${msg.client_order_id}` : ""}`);
+      send(msg);
+    };
+    $("cancelOrderBtn").onclick = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log("cancel ignored: websocket not connected");
+        return;
+      }
+      const idText = $("cancelId").value.trim();
+      if (!idText) return;
+      const clientOrderId = Number(idText);
+      log(`cancel sent: id=${clientOrderId}`);
+      send({ cmd: "cancel_order", client_order_id: clientOrderId });
+    };
+    $("buyAskBtn").onclick = () => {
+      if (!lastBook || lastBook.best_ask_px == null) {
+        log("buy@ask ignored: best ask unavailable");
+        return;
+      }
+      $("orderSide").value = "B";
+      $("orderPx").value = String(Number(lastBook.best_ask_px) + 2);
+      $("orderSz").value = $("orderSz").value || "1";
+      $("submitOrderBtn").click();
+    };
+    $("sellBidBtn").onclick = () => {
+      if (!lastBook || lastBook.best_bid_px == null) {
+        log("sell@bid ignored: best bid unavailable");
+        return;
+      }
+      $("orderSide").value = "A";
+      $("orderPx").value = String(Number(lastBook.best_bid_px) - 2);
+      $("orderSz").value = $("orderSz").value || "1";
+      $("submitOrderBtn").click();
+    };
+    timelineEl.oninput = () => {
+      followLive = false;
+      moveToIndex(Number(timelineEl.value));
+    };
+    $("liveBtn").onclick = () => {
+      followLive = true;
+      if (history.length > 0) moveToIndex(history.length - 1);
+    };
+    window.addEventListener("resize", () => drawChart());
+    drawChart();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treasury-futures-execution-analytics-tca-engine"
+version = "0.1.0"
+description = "Queue-aware CME futures order-book replay and execution research"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+data = ["databento>=0.70", "pandas>=2.2", "pyarrow>=15"]
+dashboard = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8", "pandas>=2.2", "pyarrow>=15", "matplotlib>=3.9"]
+
+[tool.setuptools.packages.find]
+include = ["treasury_futures_execution_analytics_tca_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

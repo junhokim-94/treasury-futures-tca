@@ -1,0 +1,14 @@
+{
+  "instrument_id": 42004475,
+  "symbol": "ZNH6",
+  "tick_size": 15625000,
+  "lot_size": 1,
+  "snapshots": 48,
+  "final_ts_ns": 1771977599811162819,
+  "final_best_bid_px": 7250,
+  "final_best_bid_sz": 580,
+  "final_best_ask_px": 7251,
+  "final_best_ask_sz": 494,
+  "final_num_orders": 8602,
+  "none_sentinel_i64": -9223372036854775808
+}
