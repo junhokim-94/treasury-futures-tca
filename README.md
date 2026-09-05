@@ -4,6 +4,8 @@ Queue-aware research tools for CME rates futures using Databento MBO and
 Definition records. Reconstruct order-level books, export snapshots, simulate
 execution, compute execution metrics, and inspect an L3 replay dashboard.
 
+![TCA Dashboard](tca_dashboard.png)
+
 ![Recorded research results](docs/assets/project_results.png)
 
 ## Setup
