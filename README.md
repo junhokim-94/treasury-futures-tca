@@ -71,14 +71,3 @@ complete quoting strategy remain future research work.
 See [result provenance](docs/results/README.md) for sources and caveats.
 Regenerate the image with `python scripts/render_project_results.py`.
 
-## Prepare a GitHub upload
-
-```powershell
-python scripts/package_github.py
-```
-
-Extract `dist/Treasury Futures Execution Analytics & TCA Engine.zip` and upload its contents to a repository.
-The packager explicitly selects source and public documentation, excluding
-local data, caches, personal notes, and machine configuration.
-See [repository organization](docs/repository_organization.md) for renamed files.
-
